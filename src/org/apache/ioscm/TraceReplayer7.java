@@ -30,6 +30,7 @@ import java.util.concurrent.ScheduledThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.Future;
 
+import org.apache.commons.lang.ArrayUtils;
 import org.w3c.dom.Element;
 
 
@@ -122,6 +123,13 @@ public class TraceReplayer7 extends IOStream {
 		setLabelFromXML(sl);
 	}
 	
+	public static enum OP {
+	    AR, // R(asynchronous read)
+	    BR, // r(blocking read)
+	    AW, // W(asynchronous write)
+	    BSW // w(blocking write and sync) 
+    }
+	
 	public void run() {	
 		Path dp=Paths.get(dataPath);
 		if (pool == null) {
@@ -148,16 +156,59 @@ public class TraceReplayer7 extends IOStream {
 				}
 			};
 
-			long offset;
-			int rsize = 65536; //bytes
-			String op;
-			int interval; //milliseconds
+			// long offset;
+			// int rsize = 65536; //bytes
+			// int interval; //milliseconds
 			String btrl;
 			String args[];
 			
 			File trace = new File(tracePath);
 			FileReader tr = new FileReader(trace);
 			BufferedReader btr  = new BufferedReader(tr, 65536);
+			List<Long> offsetList = new ArrayList<Long>();
+			List<Integer> rsizeList = new ArrayList<Integer>();
+			List<OP> opList = new ArrayList<OP>();
+			List<Integer> intervalList = new ArrayList<Integer>();
+			
+			while ((btrl = btr.readLine()) != null) {
+				args = btrl.split("[|]");
+				String op = args[2];
+				if (syncMode == SyncMode.SYNC_ALL)
+					op = op.toLowerCase();
+				else if (syncMode == SyncMode.ASYNC_ALL)
+					op = op.toUpperCase();
+				OP thisOP = null;
+				if (op.contentEquals("R")) {
+					thisOP = OP.AR;
+				}
+				else if (op.contentEquals("r")) {
+					thisOP = OP.BR;
+				}
+				else if (op.contentEquals("W") ) {
+					thisOP = OP.AW;
+				}
+				else if (op.contentEquals("w")) {
+					thisOP = OP.BSW;
+				} else {
+					// skip unsupported operation
+					continue;
+				}
+				offsetList.add(Long.parseLong(args[0]) * blockSize);
+				rsizeList.add(Integer.parseInt(args[1]));
+				opList.add(thisOP);
+				intervalList.add(Math.round( Float.parseFloat(args[3]) * 1000 * iscale)); //millisecond
+			}
+			btr.close();
+			
+			long[] offsetArray = ArrayUtils.toPrimitive(offsetList.toArray(new Long[0]));
+			int[] rsizeArray = ArrayUtils.toPrimitive(rsizeList.toArray(new Integer[0]));
+			OP[] opArray = opList.toArray(new OP[0]);
+			int[] intervalArray = ArrayUtils.toPrimitive(intervalList.toArray(new Integer[0]));
+			
+			int opCount = offsetArray.length;
+			assert opCount == rsizeArray.length;
+			assert opCount == opArray.length;
+			assert opCount == intervalArray.length;
 			
 			RandomAccessFile rf = new RandomAccessFile(new File(dataPath), "rwd");
 			FileDescriptor rfd = rf.getFD();
@@ -168,58 +219,53 @@ public class TraceReplayer7 extends IOStream {
 			
 			sync();
 			long start = System.nanoTime();
-			
-			while ( ( (btrl = btr.readLine()) != null) && ( period <= 0 ||
-					(System.nanoTime() - start)/1000000000 <= period )) {
-				args = btrl.split("[|]");
-				
-				//LOG.info("\nER#@R3R#@\t" + btrl + "\t" + args[0] + "\t" + args[1] + "\t" + args[2] + "\t" + args[3]);
-				offset = Long.parseLong(args[0]) * blockSize;
-				rsize = Integer.parseInt(args[1]);
-				if (rsize <= 0 || offset < 0)
+			for (int i=0; i<opCount; i++) {
+				long offset = offsetArray[i];
+				int rsize = rsizeArray[i];
+				if (rsize <= 0 || offset < 0) {
 					continue;
-
+				}
+				
 				ByteBuffer buf = ByteBuffer.allocateDirect(rsize);
-				op = args[2];
-				if (syncMode == SyncMode.SYNC_ALL)
-					op = op.toLowerCase();
-				else if (syncMode == SyncMode.ASYNC_ALL)
-					op = op.toUpperCase();
-
-				interval = Math.round( Float.parseFloat(args[3]) * 1000 * iscale); //millisecond
 				
 				timerOn();
 				try {
-					if (op.contentEquals("R")) {
-						IOReqWrap req = new IOReqWrap(offset, rsize, op, System.nanoTime());
+					switch (opArray[i]) {
+					case AR: {
+						IOReqWrap req = new IOReqWrap(offset, rsize, "R", System.nanoTime());
 						fc.read(buf, offset, req, handler);
+						break;
 					}
-					else if (op.contentEquals("r")) {
+					case BR: {
 						rfc.position(offset);
 						rfc.read(buf); 		//get blocked until the requested number of bytes are read
-						timerOff(offset, rsize, op);
+						timerOff(offset, rsize, "r");
+						break;
 					}
-					else if (op.contentEquals("W") ) {
-						IOReqWrap req = new IOReqWrap(offset, rsize, op, System.nanoTime());
+					case AW: {
+						IOReqWrap req = new IOReqWrap(offset, rsize, "W", System.nanoTime());
 						fc.write(buf, offset, req, handler);
+						break;
 					}
-					else if (op.contentEquals("w")) {
+					case BSW: {
 						rfc.position(offset);
 						rfc.write(buf);
 						rfc.force(false);
 						rfd.sync();
-						timerOff(offset, rsize, op);
+						timerOff(offset, rsize, "w");
+						break;
 					}
-					else
-						;
+					}
 				} catch (IllegalStateException e) {
 					System.out.println("Offset is too large: " + offset);
 				}
 				
-				if (interval > 0)
+				int interval = intervalArray[i];
+				if (interval > 0) {
 					synchronized(this){
 						wait(interval);
 					}
+				}
 			}
 			
 			for (Future<Integer> future : futures) {
@@ -231,7 +277,6 @@ public class TraceReplayer7 extends IOStream {
 			}
 
 			rf.close();
-			btr.close();
 			
 		} catch (FileNotFoundException e) {
 			// TODO Auto-generated catch block

@@ -1,12 +1,12 @@
 <?xml version="1.0" ?><Configuration>
   <Stream label="TraceReplayer7Batch" type="TraceReplayer7Batch">
-        <period>4</period>
-        <dataLocation>/dev/raw/raw1</dataLocation>
+        <period>3600</period>
+        <dataLocation>/mnt/TPM1/exp1.1/rcfile.binary.c700000.rg1048576/cfg1</dataLocation>
         <dataIsDir>false</dataIsDir>
-        <traceDir>/home/siv/expr/trace/tiny/</traceDir>
+        <traceDir>/home/yhuai/Desktop/strace.rcfile.binary.c700000.rg1048576.io65536.cfg1:0.out.replay//</traceDir>
         <blockSize>1</blockSize>
         <intervalScaleFactor>1</intervalScaleFactor>
 	<AIOPoolSize>128</AIOPoolSize>
-        <SyncMode>SYNC_ALL</SyncMode>
+        <SyncMode>DEFAULT</SyncMode>
    </Stream>
 </Configuration>

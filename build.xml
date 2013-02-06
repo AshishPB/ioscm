@@ -26,6 +26,7 @@
 		<pathelement location="lib/commons-logging-1.1.1.jar"/>
     	<pathelement location="lib/commons-logging-api-1.0.4.jar"/>
     	<pathelement location="lib/log4j-1.2.16.jar"/>
+    	<pathelement location="lib/commons-lang-2.4.jar"/>
     </classpath>
     </javac>
   </target>
@@ -38,7 +39,7 @@
     <!-- Put everything in ${build} into the ioscm-${DSTAMP}.jar file -->
     <jar jarfile="${dist}/lib/ioscm-${DSTAMP}.jar" basedir="${build}">
     	<manifest>
-		 	<attribute name="Class-Path" value=". ../../lib/commons-logging-1.1.1.jar ../../lib/commons-logging-api-1.0.4.jar ../../lib/log4j-1.2.16.jar"/>
+		 	<attribute name="Class-Path" value=". ../../lib/commons-logging-1.1.1.jar ../../lib/commons-logging-api-1.0.4.jar ../../lib/log4j-1.2.16.jar ../../lib/commons-lang-2.4.jar"/>
 			<attribute name="Main-Class" value="org.apache.ioscmeter.CongestionMeter"/>
 		</manifest>
     </jar>
